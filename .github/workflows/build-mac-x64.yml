@@ -1,0 +1,121 @@
+name: Build macOS Intel (x64)
+
+# Builds the Desktop installers for Intel Macs on GitHub's Intel macOS runner and
+# publishes the DMG to this repository's Releases. The upstream macOS workflow is
+# wired to self-hosted Apple Silicon machines and a Developer ID certificate, so it
+# cannot produce a runnable Intel artifact. This workflow reuses the packaging
+# entry point that the repository already provides (an ad-hoc signed "unsigned"
+# build) and only adds the release upload.
+
+on:
+  push:
+    branches: [ci/mac-x64-build]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  DSH_TELEMETRY_DISABLED: '1'
+  HOMEBREW_NO_AUTO_UPDATE: '1'
+  HOMEBREW_NO_INSTALL_CLEANUP: '1'
+
+concurrency:
+  group: mac-x64-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Package macOS x64
+    # macos-15-intel is the Intel (x86_64) hosted image; macos-13 was retired in 2025.
+    runs-on: macos-15-intel
+    timeout-minutes: 300
+    steps:
+      - name: Report the build host
+        run: |
+          uname -a
+          sw_vers
+          node --version
+          df -h /
+          xcode-select -p || true
+
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+          clean: true
+
+      - uses: pnpm/action-setup@v5.0.0
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '24'
+          check-latest: false
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile --reporter=append-only
+
+      - name: Build the unsigned macOS x64 package
+        run: pnpm run package:desktop:mac:x64:unsigned
+
+      - name: Collect the installer
+        id: artifact
+        run: |
+          set -euo pipefail
+          dir=apps/desktop/.desktop-build/targets/mac-x64/unsigned-artifacts
+          ls -lh "$dir"
+          dmg=$(find "$dir" -maxdepth 1 -name '*.dmg' -type f | head -n 1)
+          if [ -z "$dmg" ]; then
+            echo "::error::No DMG was produced in $dir"
+            exit 1
+          fi
+          echo "dmg=$dmg" >> "$GITHUB_OUTPUT"
+          shasum -a 256 "$dmg" | tee "$RUNNER_TEMP/sha256.txt"
+          cp "$dmg" "$RUNNER_TEMP/"
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DMG: ${{ steps.artifact.outputs.dmg }}
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          tag="mac-x64-v${version}"
+          commit=$(git rev-parse HEAD)
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release delete "$tag" --yes --cleanup-tag
+          fi
+          {
+            echo "# DeepSeek Harness ${version} · macOS Intel (x64)"
+            echo
+            echo "Unsigned (ad-hoc signed) build of \`${commit}\` for Intel Macs, produced by GitHub Actions on \`macos-15-intel\`."
+            echo
+            echo "## Install"
+            echo
+            echo "1. Download \`$(basename "$DMG")\`."
+            echo "2. Open the DMG and drag **DeepSeek Harness** into *Applications*."
+            echo "3. The app is not notarized by Apple, so the first launch needs **right-click → Open** (or *System Settings → Privacy & Security → Open Anyway*)."
+            echo "4. If macOS still refuses, clear the quarantine flag: \`xattr -cr \"/Applications/DeepSeek Harness.app\"\`."
+            echo
+            echo "Requires macOS 12 or newer on x86_64."
+            echo
+            echo "## Checksums"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/sha256.txt"
+            echo '```'
+          } > "$RUNNER_TEMP/notes.md"
+          gh release create "$tag" "$DMG" \
+            --title "DeepSeek Harness ${version} (macOS Intel x64)" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            --target "$commit"
+
+      - name: Retain the installer as a workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: deepseek-harness-mac-x64
+          path: ${{ runner.temp }}/*.dmg
+          if-no-files-found: warn
+          retention-days: 14
