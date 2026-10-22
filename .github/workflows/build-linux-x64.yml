@@ -1,7 +1,7 @@
-name: Build Linux (x64) AppImage
+name: Build Linux (x64) packages
 
-# Builds the Desktop AppImage for Ubuntu on GitHub's Linux runner and publishes it
-# to this repository's Releases.
+# Builds the Desktop AppImage and .deb for Ubuntu on GitHub's Linux runner and
+# publishes both to this repository's Releases.
 #
 # Upstream ships this target only as dead configuration: apps/desktop/scripts/
 # package-target.ts rejects linux-x64, prepare-runtime.ts / prepare-dsh.ts hard-code
@@ -70,47 +70,60 @@ jobs:
       - name: Build the unsigned Linux x64 package
         run: pnpm run package:desktop:linux:x64:unsigned
 
-      - name: Collect the AppImage
+      - name: Collect the installers
         id: artifact
         run: |
           set -euo pipefail
           dir=apps/desktop/.desktop-build/targets/linux-x64/unsigned-artifacts
           ls -lh "$dir"
           appimage=$(find "$dir" -maxdepth 1 -name '*.AppImage' -type f | head -n 1)
-          if [ -z "$appimage" ]; then
-            echo "::error::No AppImage was produced in $dir"
+          deb=$(find "$dir" -maxdepth 1 -name '*.deb' -type f | head -n 1)
+          if [ -z "$appimage" ] || [ -z "$deb" ]; then
+            echo "::error::Expected both an AppImage and a .deb in $dir"
             exit 1
           fi
           echo "appimage=$appimage" >> "$GITHUB_OUTPUT"
-          sha256sum "$appimage" | tee "$RUNNER_TEMP/sha256.txt"
+          echo "deb=$deb" >> "$GITHUB_OUTPUT"
+          sha256sum "$appimage" "$deb" | tee "$RUNNER_TEMP/sha256.txt"
 
       - name: Publish the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           APPIMAGE: ${{ steps.artifact.outputs.appimage }}
+          DEB: ${{ steps.artifact.outputs.deb }}
         run: |
           set -euo pipefail
           version=$(node -p "require('./package.json').version")
           tag="linux-x64-v${version}"
           commit=$(git rev-parse HEAD)
-          name=$(basename "$APPIMAGE")
+          appimage_name=$(basename "$APPIMAGE")
+          deb_name=$(basename "$DEB")
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release delete "$tag" --yes --cleanup-tag
           fi
           {
-            echo "# DeepSeek Harness ${version} · Linux x86_64 AppImage"
+            echo "# DeepSeek Harness ${version} · Linux x86_64"
             echo
-            echo "Ubuntu / x86_64 AppImage built by GitHub Actions on \`ubuntu-24.04\` from \`${commit}\`."
-            echo "The Electron payload is unsigned, and the AppImage runs without installation."
+            echo "Ubuntu / x86_64 packages built by GitHub Actions on \`ubuntu-24.04\` from \`${commit}\`."
+            echo "The Electron payload is unsigned: there is no system installer signature and no repository."
             echo
-            echo "## Run"
+            echo "## Install as a .deb"
             echo
             echo '```bash'
-            echo "chmod +x ${name}"
-            echo "./${name}"
+            echo "sudo apt-get install -y ./${deb_name}"
+            echo "deepseek-harness"
             echo '```'
             echo
-            echo "If your desktop refuses to launch it, install the FUSE compatibility layer once:"
+            echo "Remove it with \`sudo apt-get remove deepseek-harness\`."
+            echo
+            echo "## Run the AppImage without installing"
+            echo
+            echo '```bash'
+            echo "chmod +x ${appimage_name}"
+            echo "./${appimage_name}"
+            echo '```'
+            echo
+            echo "If your desktop refuses to launch the AppImage, install the FUSE compatibility layer once:"
             echo
             echo '```bash'
             echo "sudo apt-get install -y libfuse2t64"
@@ -122,16 +135,18 @@ jobs:
             cat "$RUNNER_TEMP/sha256.txt"
             echo '```'
           } > "$RUNNER_TEMP/notes.md"
-          gh release create "$tag" "$APPIMAGE" \
-            --title "DeepSeek Harness ${version} (Linux x64 AppImage)" \
+          gh release create "$tag" "$APPIMAGE" "$DEB" \
+            --title "DeepSeek Harness ${version} (Linux x64: AppImage + deb)" \
             --notes-file "$RUNNER_TEMP/notes.md" \
             --target "$commit"
 
-      - name: Retain the AppImage as a workflow artifact
+      - name: Retain the installers as workflow artifacts
         if: always()
         uses: actions/upload-artifact@v7.0.1
         with:
           name: deepseek-harness-linux-x64
-          path: apps/desktop/.desktop-build/targets/linux-x64/unsigned-artifacts/*.AppImage
+          path: |
+            apps/desktop/.desktop-build/targets/linux-x64/unsigned-artifacts/*.AppImage
+            apps/desktop/.desktop-build/targets/linux-x64/unsigned-artifacts/*.deb
           if-no-files-found: warn
           retention-days: 14

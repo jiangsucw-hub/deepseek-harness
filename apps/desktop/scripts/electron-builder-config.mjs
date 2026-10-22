@@ -76,7 +76,7 @@ export function createElectronBuilderConfig(
   let dshDestination
   let windowsCode = []
   const unpack = ['**/*.{node,dylib,dll,so,exe}', '**/*.so.*', '**/spawn-helper', '**/@vscode/ripgrep-*/bin/rg',
-    `**/node_modules/@deepseek-ai/libreoffice-kit-${resolvedPlatform}-${resolvedArch}/**/*`]
+    `**/node_modules/@deepseek-ai/libreoffice-kit-${resolvedPlatform}-${resolvedArch}*/**/*`]
   const windowsSigner = packagesWindows && !unsigned
     ? createWindowsTokenSigner({
         certificateFile: env.DSH_DESKTOP_WINDOWS_CER_FILE,
@@ -248,10 +248,27 @@ export function createElectronBuilderConfig(
     },
     linux: {
       category: 'Development',
-      target: ['AppImage'],
+      target: ['AppImage', 'deb'],
       // Pin the executable name: the launcher script, smoke test and .desktop entry all address it.
       executableName: 'deepseek-harness',
       icon: fileURLToPath(new URL('../resources/icon.png', import.meta.url)),
+      maintainer: 'jiangsucw-hub <jiangsucw-hub@users.noreply.github.com>',
+      synopsis: 'DeepSeek Harness desktop shell over the bundled dsh runtime',
+    },
+    deb: {
+      // Ubuntu 24.04 renamed several runtime libraries with the t64 suffix; accept either generation
+      // so the same package installs on 22.04 and 24.04.
+      depends: [
+        'libgtk-3-0t64 | libgtk-3-0',
+        'libnotify4',
+        'libnss3',
+        'libxss1',
+        'libxtst6',
+        'xdg-utils',
+        'libatspi2.0-0t64 | libatspi2.0-0',
+        'libuuid1',
+        'libsecret-1-0',
+      ],
     },
     nsis: {
       installerSidebar: join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp'),

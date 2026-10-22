@@ -6,13 +6,20 @@ import { isAbsolute, join, relative, sep } from 'node:path'
 
 /**
  * Require the declared native engine, or use WASM on other targets.
+ *
+ * Linux engines carry a libc suffix (`linux-x64-glibc`, `linux-arm64-musl`) because the kit ships one
+ * build per C library; the unsuffixed name stays a fallback for kits that publish a single Linux build.
  * @param {{ optionalDependencies?: Record<string, string> }} manifest - Installed kit manifest.
  * @param {{ platform: string, arch: string }} target - Distribution platform and CPU.
  * @returns {string} Engine package suffix.
  */
 export function selectOfficeEngine(manifest, target) {
-  const native = `${target.platform}-${target.arch}`
-  return Object.hasOwn(manifest.optionalDependencies ?? {}, `@deepseek-ai/libreoffice-kit-${native}`) ? native : 'wasm'
+  const optionalDependencies = manifest.optionalDependencies ?? {}
+  const candidates = target.platform === 'linux'
+    ? [`linux-${target.arch}-glibc`, `linux-${target.arch}`, `linux-${target.arch}-musl`]
+    : [`${target.platform}-${target.arch}`]
+  const native = candidates.find(candidate => Object.hasOwn(optionalDependencies, `@deepseek-ai/libreoffice-kit-${candidate}`))
+  return native ?? 'wasm'
 }
 
 /**
