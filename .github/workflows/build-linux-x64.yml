@@ -70,6 +70,21 @@ jobs:
       - name: Build the unsigned Linux x64 package
         run: pnpm run package:desktop:linux:x64:unsigned
 
+      - name: Diagnose the Office engine layout
+        if: failure()
+        run: |
+          set -uo pipefail
+          target=apps/desktop/.desktop-build/targets/linux-x64
+          echo "== dsh runtime tree =="
+          find "$target/dsh/node_modules/@deepseek-ai" -maxdepth 1 -name 'libreoffice-kit-*' -print 2>/dev/null
+          echo "== kit manifest =="
+          node -e "const m=require('./$target/dsh/node_modules/@deepseek-ai/libreoffice-kit/package.json'); console.log(m.version, JSON.stringify(m.optionalDependencies))" 2>&1 || true
+          echo "== unpacked resources =="
+          find "$target/unsigned-artifacts/linux-unpacked/resources" -maxdepth 6 -name 'libreoffice-kit-*' -print 2>/dev/null
+          echo "== asar entries =="
+          grep -a -o '@deepseek-ai/libreoffice-kit-[a-z0-9.-]*' "$target/unsigned-artifacts/linux-unpacked/resources/app.asar" 2>/dev/null | sort -u || true
+          echo "== app node_modules entries =="
+          grep -a -o 'libreoffice-kit-linux[a-z0-9.-]*' "$target/unsigned-artifacts/linux-unpacked/resources/app.asar" 2>/dev/null | sort -u || true
       - name: Collect the installers
         id: artifact
         run: |
