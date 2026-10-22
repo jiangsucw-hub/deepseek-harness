@@ -3,7 +3,7 @@ name: Sync upstream and release
 # Keeps this fork aligned with deepseek-ai/deepseek-harness and rebuilds the
 # unsigned Desktop installers whenever upstream moves.
 #
-#   master              mirrors upstream, unpatched
+#   master              upstream plus the fork's own automation commit
 #   release/linux-x64   master plus the Linux AppImage/deb packaging patches
 #
 # macOS packages build from master because they need no patches; Linux packages
@@ -55,21 +55,24 @@ jobs:
           git remote add upstream "https://github.com/${UPSTREAM}.git"
           git fetch --no-tags upstream master
 
-      - name: Fast-forward master to upstream
+      - name: Merge upstream into master
         id: compare
         run: |
           set -euo pipefail
           upstream=$(git rev-parse upstream/master)
-          local=$(git rev-parse HEAD)
           echo "sha=${upstream}" >> "$GITHUB_OUTPUT"
           echo "short=$(git rev-parse --short=7 "${upstream}")" >> "$GITHUB_OUTPUT"
-          if [ "${upstream}" = "${local}" ]; then
+          if git merge-base --is-ancestor "${upstream}" HEAD; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "master already matches ${upstream}"
+            echo "master already contains ${upstream}"
           else
-            git push origin "upstream/master:refs/heads/master"
+            # master also carries the fork's own automation commit, so upstream arrives as a merge.
+            git -c user.name='github-actions[bot]' \
+                -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+                merge --no-edit "${upstream}"
+            git push origin HEAD:refs/heads/master
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "master fast-forwarded to ${upstream}"
+            echo "master merged ${upstream}"
           fi
 
       - name: Rebase the Linux packaging patches onto master
