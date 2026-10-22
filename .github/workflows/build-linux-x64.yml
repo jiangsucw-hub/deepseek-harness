@@ -73,7 +73,7 @@ jobs:
       - name: Diagnose the Office engine layout
         if: failure()
         run: |
-          set -uo pipefail
+          set -u
           target=apps/desktop/.desktop-build/targets/linux-x64
           echo "== dsh runtime tree =="
           find "$target/dsh/node_modules/@deepseek-ai" -maxdepth 1 -name 'libreoffice-kit-*' -print 2>/dev/null
@@ -82,11 +82,14 @@ jobs:
           echo "== unpacked resources =="
           find "$target/unsigned-artifacts/linux-unpacked/resources" -maxdepth 6 -name 'libreoffice-kit-*' -print 2>/dev/null
           echo "== asar entries =="
-          grep -a -o '@deepseek-ai/libreoffice-kit-[a-z0-9.-]*' "$target/unsigned-artifacts/linux-unpacked/resources/app.asar" 2>/dev/null | sort -u || true
+          grep -a -o '@deepseek-ai/libreoffice-kit-[a-z0-9.-]*' "$target/unsigned-artifacts/linux-unpacked/resources/app.asar" 2>/dev/null | sort -u | head -20 || true
           echo "== app node_modules entries =="
-          grep -a -o 'libreoffice-kit-linux[a-z0-9.-]*' "$target/unsigned-artifacts/linux-unpacked/resources/app.asar" 2>/dev/null | sort -u || true
+          grep -a -o 'libreoffice-kit-linux[a-z0-9.-]*' "$target/unsigned-artifacts/linux-unpacked/resources/app.asar" 2>/dev/null | sort -u | head -20 || true
           echo "== stray engine directories =="
-          find "$PWD" /tmp -maxdepth 12 -name 'libreoffice-kit-linux*' -print 2>/dev/null | head -20
+          find "$PWD" /tmp -maxdepth 12 -name 'libreoffice-kit-linux*' -print 2>/dev/null | head -20 || true
+          echo "== resources layout =="
+          ls -la "$target/unsigned-artifacts/linux-unpacked/resources" || true
+          ls -la "$target/unsigned-artifacts/linux-unpacked/resources/app.asar.unpacked/dsh/node_modules/@deepseek-ai" 2>/dev/null || true
           echo "== resolution probe (packaged Electron) =="
           unpacked="$target/unsigned-artifacts/linux-unpacked"
           ELECTRON_RUN_AS_NODE=1 "$unpacked/deepseek-harness" -e '
