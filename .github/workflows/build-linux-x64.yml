@@ -92,22 +92,29 @@ jobs:
           ls -la "$target/unsigned-artifacts/linux-unpacked/resources/app.asar.unpacked/dsh/node_modules/@deepseek-ai" 2>/dev/null || true
           echo "== resolution probe (packaged Electron) =="
           unpacked="$target/unsigned-artifacts/linux-unpacked"
+          appRoot="$PWD/$unpacked/resources/app.asar/dsh"
+          packedRoot="$PWD/$unpacked/resources/app.asar.unpacked/dsh"
           ELECTRON_RUN_AS_NODE=1 "$unpacked/deepseek-harness" -e '
             const { createRequire } = require("node:module");
             const { join } = require("node:path");
             const fs = require("node:fs");
-            const root = process.argv[1];
+            const [asarRoot, unpackedRoot] = process.argv.slice(1);
             const name = "@deepseek-ai/libreoffice-kit-linux-x64-glibc";
-            const req = createRequire(join(root, "node_modules/@deepseek-ai/libreoffice-kit/lib/index.js"));
-            for (const dir of req.resolve.paths(name) ?? []) {
-              const p = join(dir, name);
-              let stat;
-              try { stat = fs.lstatSync(p, { throwIfNoEntry: false }); }
-              catch (error) { console.log("probe-error", error.code, p); continue; }
-              if (stat) console.log("probe-found", stat.isDirectory() ? "dir" : "other", p);
+            for (const root of [asarRoot, unpackedRoot]) {
+              console.log("root", root);
+              const req = createRequire(join(root, "node_modules/@deepseek-ai/libreoffice-kit/lib/index.js"));
+              for (const dir of req.resolve.paths(name) ?? []) {
+                const p = join(dir, name);
+                let stat;
+                try { stat = fs.lstatSync(p, { throwIfNoEntry: false }); }
+                catch (error) { console.log("probe-error", error.code, p); continue; }
+                console.log(stat ? "probe-found" : "probe-absent", p, stat ? (stat.isDirectory() ? "dir" : "other") : "");
+              }
+              try { console.log("resolved", req.resolve(name + "/package.json")); }
+              catch (error) { console.log("resolve-error", error.code, error.message.split("\n")[0]); }
             }
             console.log("probe-done");
-          ' "$PWD/$target/unsigned-artifacts/linux-unpacked/resources/app.asar/dsh" 2>&1 || true
+          ' "$appRoot" "$packedRoot" 2>&1 || true
       - name: Collect the installers
         id: artifact
         run: |
